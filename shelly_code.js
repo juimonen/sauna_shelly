@@ -37,8 +37,10 @@ let CALENDAR_ID = "xxxxxxxxx";  // test calendar
 let API_KEY     = "xxxxxxxxx";
 let BASE_URL    = "https://api.kiinteistodata.fi/open-api-v1/properties";
 
-let REFRESH_INTERVAL = 60 * 1000; // 1 minute
+let REFRESH_INTERVAL = 5 * 60 * 1000; // 5 minutes
 let WEEK_SPAN        = 1; // Number of full weeks to fetch
+let NIGHT_START      = 22; // pause at 22:00
+let NIGHT_END        = 10; // resume at 10:00
 let lastApplied      = null;
 
 // --- Helpers ---
@@ -90,33 +92,10 @@ function toCronString(isoString) {
   return sec + " " + min + " " + hr + " * * " + dow;
 }
 
-function deleteAllSchedules(callback) {
-  Shelly.call("Schedule.List", {}, function(res) {
-    if (!res || !res.jobs || res.jobs.length === 0) {
-      print("No schedules found to delete.");
-      if (callback) callback();
-      return;
-    }
-
-    print("Deleting " + res.jobs.length + " schedules...");
-
-    let idx = 0;
-    function deleteNext() {
-      if (idx >= res.jobs.length) {
-        print("All schedules deleted.");
-        if (callback) callback(); // signal completion
-        return;
-      }
-
-      let jobId = res.jobs[idx++].id;
-      Shelly.call("Schedule.Delete", { id: jobId }, function(r) {
-        print("Deleted job id: " + jobId);
-        Timer.set(200, false, deleteNext);
-      });
-    }
-
-    deleteNext();
-  });
+function isPollingAllowed() {
+  let now = new Date();
+  let hr = now.getHours();
+  return !(hr >= NIGHT_START || hr < NIGHT_END);
 }
 
 function preprocessTimings(timings) {
@@ -165,6 +144,35 @@ function preprocessTimings(timings) {
     out.push({ on: merged[i].on.toISOString(), off: merged[i].off.toISOString() });
   }
   return out;
+}
+
+function deleteAllSchedules(callback) {
+  Shelly.call("Schedule.List", {}, function(res) {
+    if (!res || !res.jobs || res.jobs.length === 0) {
+      print("No schedules found to delete.");
+      if (callback) callback();
+      return;
+    }
+
+    print("Deleting " + res.jobs.length + " schedules...");
+
+    let idx = 0;
+    function deleteNext() {
+      if (idx >= res.jobs.length) {
+        print("All schedules deleted.");
+        if (callback) callback(); // signal completion
+        return;
+      }
+
+      let jobId = res.jobs[idx++].id;
+      Shelly.call("Schedule.Delete", { id: jobId }, function(r) {
+        print("Deleted job id: " + jobId);
+        Timer.set(200, false, deleteNext);
+      });
+    }
+
+    deleteNext();
+  });
 }
 
 function applySchedules(timings) {
@@ -321,6 +329,10 @@ function printHumanSchedule(timings) {
 }
 
 function syncCalendar() {
+  if (!isPollingAllowed()) {
+    print("Polling paused during night hours.");
+    return;
+  }
   let url = buildApiUrl();
   Shelly.call("http.get", { url:url }, function(res, errCode, errMsg) {
     if (errCode !== 0) { print("HTTP error:", errMsg); return; }
