@@ -39,6 +39,8 @@ let BASE_URL    = "https://api.kiinteistodata.fi/open-api-v1/properties";
 
 let REFRESH_INTERVAL = 5 * 60 * 1000; // 5 minutes
 let WEEK_SPAN        = 1; // Number of full weeks to fetch
+let START_PRE        = 30; // minutes to shift ON times earlier
+let END_GAP          = 30;  // minutes gap to merge to next event
 let NIGHT_START      = 22; // pause at 22:00
 let NIGHT_END        = 10; // resume at 10:00
 let lastApplied      = null;
@@ -101,11 +103,11 @@ function isPollingAllowed() {
 function preprocessTimings(timings) {
   if (!timings || timings.length === 0) return [];
 
-  // Convert to Date objects and adjust ON times (-30 min)
+  // Convert to Date objects and adjust ON times (-START_PRE min)
   let adjusted = [];
   for (let i = 0; i < timings.length; i++) {
     let on = new Date(timings[i].on);
-    on = new Date(on.getTime() - 30 * 60000); // minus 30 minutes
+    on = new Date(on.getTime() - START_PRE * 60000); // minus START_GAP minutes
     let off = new Date(timings[i].off);
     adjusted.push({ on: on, off: off });
   }
@@ -128,7 +130,7 @@ function preprocessTimings(timings) {
     let next = adjusted[i];
     let gap = (next.on - current.off) / 60000; // minutes
 
-    if (gap <= 60) {
+    if (gap <= END_GAP) {
       // Extend current OFF to cover next OFF if later
       if (next.off > current.off) current.off = next.off;
     } else {
