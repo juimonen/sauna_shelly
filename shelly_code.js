@@ -46,6 +46,8 @@ let END_GAP          = 30;            // minutes gap to merge to next event
 let NIGHT_START      = 22;            // pause polling at 22:00
 let NIGHT_END        = 10;            // resume polling at 10:00
 let lastApplied      = null;
+let FAILED_SYNC_COUNT = 0;
+let FAILED_SYNC_THRESHOLD = 5;
 
 // --- Helpers ---
 function pad2(n) { return n < 10 ? "0" + n : "" + n; }
@@ -323,6 +325,12 @@ function printHumanSchedule(timings) {
   });
 }
 
+function notifyNetworkIssue() {
+  // Example: send via Shelly HTTP request or print
+  print("Network issue: calendar sync failed " + FAILED_SYNC_COUNT + " times!");
+  // Optional: Shelly.call("http.request", { url: "https://server/notify?msg=network_down" });
+}
+
 function syncCalendar() {
   if (!isPollingAllowed()) {
     print("Polling paused during night hours, force switch off.");
@@ -334,10 +342,18 @@ function syncCalendar() {
   if (!url) return;
 
   Shelly.call("http.get", { url:url }, function(res, errCode, errMsg) {
-    if (errCode !== 0 || !res || !res.body) {
-      print("HTTP error:", errCode, errMsg);
+    if (errCode !== 0) {
+      print("HTTP error:", errMsg);
+      FAILED_SYNC_COUNT++;
+      if (FAILED_SYNC_COUNT >= FAILED_SYNC_THRESHOLD) {
+        notifyNetworkIssue();
+        FAILED_SYNC_COUNT = 0; // reset after alert
+      }
       return;
     }
+
+    // Reset counter on successful fetch
+    FAILED_SYNC_COUNT = 0;
 
     let data;
     try { data = JSON.parse(res.body); }
