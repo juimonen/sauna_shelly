@@ -381,31 +381,106 @@ function syncCalendar() {
   });
 }
 
-// --- Test mode ---
-let testState = false;
-function testApiFlip() {
-  let url = buildApiUrl();
-  if (!url) return;
-  print("TEST: Fetching timings from:", url);
+let RUN_TESTS = false; // set to false for real operation
 
-  Shelly.call("http.get", { url:url }, function(res, errCode, errMsg) {
-    if(errCode !== 0 || !res || !res.body){ print("TEST: HTTP error:", errMsg); return; }
-    let data;
-    try{ data = JSON.parse(res.body); } catch(e){ print("TEST: JSON parse error:", e); return; }
-
-    if (!data.timings) { print("TEST: Invalid response"); return; }
-
-    print("TEST: Received timings:", JSON.stringify(data.timings));
-    testState = !testState;
-    Shelly.call("Switch.Set", { id:0, on:testState });
-    print("TEST: Switch toggled to", testState ? "ON":"OFF");
-  });
+if (RUN_TESTS) {
+    runAllTests();
+} else {
+    syncCalendar();
+    Timer.set(REFRESH_INTERVAL, true, syncCalendar);
 }
 
-// REAL mode
-syncCalendar();
-Timer.set(REFRESH_INTERVAL, true, syncCalendar);
+function runAllTests() {
+    console.log("=== Running test suite ===");
+    let results = [];
 
-// TEST mode
-// testApiFlip();
-// Timer.set(REFRESH_INTERVAL, true, testApiFlip);
+    function runTest(name, fn) {
+        try {
+            fn();
+            results.push({ name, status: "PASSED" });
+        } catch (e) {
+            results.push({ name, status: "FAILED", error: e.message });
+        }
+    }
+
+    // --- Test 1: Preprocess merges overlapping events ---
+    runTest("Preprocess merge test", function() {
+        let input = [
+            { on: "2025-09-12T10:30:00Z", off: "2025-09-12T11:00:00Z" },
+            { on: "2025-09-12T10:45:00Z", off: "2025-09-12T11:15:00Z" }
+        ];
+        let output = preprocessTimings(input);
+        if (output.length !== 1) throw new Error("Merge failed");
+    });
+
+    // --- Test 2: Preprocess applies START_PRE ---
+    runTest("Start pre adjustment test", function() {
+        let input = [{ on: "2025-09-12T10:30:00Z", off: "2025-09-12T11:00:00Z" }];
+        let output = preprocessTimings(input);
+        let expectedOn = new Date("2025-09-12T10:00:00Z").toISOString(); // START_PRE = 30
+        if (output[0].on !== expectedOn) throw new Error("START_PRE not applied correctly");
+    });
+
+    // --- Test 3: Schedules differ logic ---
+    runTest("Schedules differ test", function() {
+        lastApplied = [{ on: "2025-09-12T10:00:00Z", off: "2025-09-12T11:00:00Z" }];
+        let newTimings = [{ on: "2025-09-12T10:00:00Z", off: "2025-09-12T11:00:00Z" }];
+        if (schedulesDiffer(newTimings)) throw new Error("Should not detect changes");
+        newTimings = [{ on: "2025-09-12T10:05:00Z", off: "2025-09-12T11:00:00Z" }];
+        if (!schedulesDiffer(newTimings)) throw new Error("Should detect changes");
+    });
+
+    // --- Test 4: Empty timings ---
+    runTest("Empty timings test", function() {
+        let output = preprocessTimings([]);
+        if (!Array.isArray(output) || output.length !== 0) throw new Error("Empty timings failed");
+    });
+
+    // --- Test 5: Malformed input ---
+    runTest("Malformed input test", function() {
+        try {
+            preprocessTimings(null);
+            preprocessTimings(undefined);
+        } catch (e) {
+            throw new Error("Malformed input caused error");
+        }
+    });
+
+    // --- Test 6: Cron string correctness ---
+    runTest("Cron string test", function() {
+        let iso = "2025-09-12T10:30:45Z";
+        let cron = toCronString(iso);
+        if (!cron.match(/45 30 10 \* \* \w{3}/)) throw new Error("Cron string format invalid: " + cron);
+    });
+
+    // --- Test 7: Nighttime enforcement ---
+    runTest("Nighttime enforcement test", function() {
+        let originalNIGHT_START = NIGHT_START;
+        let originalNIGHT_END = NIGHT_END;
+
+        NIGHT_START = 22;
+        NIGHT_END = 10;
+
+        let oldDate = new Date();
+        let testDate = new Date();
+        testDate.setHours(23);
+        Date = class extends Date {
+            constructor() { super(); return testDate; }
+        };
+        if (isPollingAllowed()) throw new Error("Polling should be paused at 23:00");
+
+        testDate.setHours(11);
+        if (!isPollingAllowed()) throw new Error("Polling should be allowed at 11:00");
+
+        NIGHT_START = originalNIGHT_START;
+        NIGHT_END = originalNIGHT_END;
+        Date = oldDate.constructor;
+    });
+
+    // --- Summary ---
+    console.log("=== Test results ===");
+    results.forEach(r => {
+        console.log(r.name, ":", r.status, r.error ? "(" + r.error + ")" : "");
+    });
+    console.log("=== Tests completed ===");
+}
