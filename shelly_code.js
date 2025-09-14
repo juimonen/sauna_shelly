@@ -37,12 +37,14 @@ let CALENDAR_ID = "xxxxxxxxx";  // test calendar
 let API_KEY     = "xxxxxxxxx";
 let BASE_URL    = "https://api.kiinteistodata.fi/open-api-v1/properties";
 
+// === Config ===
 let REFRESH_INTERVAL = 5 * 60 * 1000; // 5 minutes
-let WEEK_SPAN        = 1; // Number of full weeks to fetch
-let START_PRE        = 30; // minutes to shift ON times earlier
-let END_GAP          = 30;  // minutes gap to merge to next event
-let NIGHT_START      = 22; // pause at 22:00
-let NIGHT_END        = 10; // resume at 10:00
+let WEEK_SPAN        = 1;             // number of full weeks (7-day blocks)
+let MODE             = "calendar";    // "calendar" = Mon–Sun, "rolling" = today→+N*7-1
+let START_PRE        = 30;            // minutes to shift ON times earlier
+let END_GAP          = 30;            // minutes gap to merge to next event
+let NIGHT_START      = 22;            // pause polling at 22:00
+let NIGHT_END        = 10;            // resume polling at 10:00
 let lastApplied      = null;
 
 // --- Helpers ---
@@ -56,24 +58,51 @@ function formatDate(input) {
 // Map JS getDay() (0=Sun..6=Sat) to cron-style day codes
 let DOW_MAP = ["SUN","MON","TUE","WED","THU","FRI","SAT"];
 
+// --- Build API URL with MODE ---
 function buildApiUrl() {
   var now = Date.now();
   var today = new Date(now);
-  var day = today.getDay(); // 0=Sun
-
   var DAY_MS = 86400000;
-  var mondayOffset = (day === 0 ? -6 : 1 - day);
-  var mondayTs = now + mondayOffset * DAY_MS;
-  var sundayTs = mondayTs + (7 * WEEK_SPAN - 1) * DAY_MS;
 
-  var monday = new Date(mondayTs);
-  var sunday = new Date(sundayTs);
+  var startTs, endTs;
 
-  print("Computed week window:", formatDate(monday), "->", formatDate(sunday));
+  if (MODE === "calendar") {
+    // Monday of current week
+    var day = today.getDay(); // 0=Sun
+    var mondayOffset = (day === 0 ? -6 : 1 - day);
+    var mondayTs = now + mondayOffset * DAY_MS;
+
+    var mondayDate = new Date(mondayTs);
+    var mondayStartTs = mondayTs - (
+      mondayDate.getHours() * 3600000 +
+      mondayDate.getMinutes() * 60000 +
+      mondayDate.getSeconds() * 1000 +
+      mondayDate.getMilliseconds()
+    );
+
+    startTs = mondayStartTs;
+    endTs   = startTs + (7 * WEEK_SPAN - 1) * DAY_MS;
+
+  } else { // rolling
+    var todayStartTs = now - (
+      today.getHours() * 3600000 +
+      today.getMinutes() * 60000 +
+      today.getSeconds() * 1000 +
+      today.getMilliseconds()
+    );
+
+    startTs = todayStartTs;
+    endTs   = startTs + (7 * WEEK_SPAN * DAY_MS) - DAY_MS;
+  }
+
+  var start = new Date(startTs);
+  var end   = new Date(endTs);
+
+  print("Computed window:", formatDate(start), "->", formatDate(end));
 
   return BASE_URL + "/" + HOUSE_ID +
          "/calendars/" + CALENDAR_ID +
-         "/timings/" + formatDate(monday) + "/" + formatDate(sunday) +
+         "/timings/" + formatDate(start) + "/" + formatDate(end) +
          "/?api_key=" + API_KEY;
 }
 
@@ -175,75 +204,6 @@ function deleteAllSchedules(callback) {
 
     deleteNext();
   });
-}
-
-function applySchedules(timings) {
-  if (!timings || timings.length === 0) {
-    print("No timings to apply.");
-    return;
-  }
-
-  print("Applying " + timings.length + " timing pairs…");
-
-  // Step 1: Delete all existing schedules first
-  Shelly.call("Schedule.List", {}, function(res) {
-    if (!res || !res.jobs) res = { jobs: [] };
-
-    let jobsToDelete = res.jobs.slice(); // copy
-    let di = 0;
-
-    function deleteNext() {
-      if (di >= jobsToDelete.length) {
-        print("All old schedules deleted, now programming new ones…");
-        createJobs();
-        return;
-      }
-      let jobId = jobsToDelete[di++].id;
-      Shelly.call("Schedule.Delete", { id: jobId }, function(r) {
-        print("Deleted job id:", jobId);
-        Timer.set(200, false, deleteNext);
-      });
-    }
-
-    deleteNext();
-  });
-
-  // Step 2: Create jobs sequentially
-  function createJobs() {
-    let jobs = [];
-
-    timings.forEach(function(t) {
-      jobs.push({
-        enable: true,
-        timespec: toCronString(t.on),
-        calls: [{ method: "Switch.Set", params: { id: 0, on: true } }]
-      });
-      jobs.push({
-        enable: true,
-        timespec: toCronString(t.off),
-        calls: [{ method: "Switch.Set", params: { id: 0, on: false } }]
-      });
-    });
-
-    print("Programming " + jobs.length + " jobs…");
-
-    let i = 0;
-    function createNext() {
-      if (i >= jobs.length) {
-        lastApplied = JSON.parse(JSON.stringify(timings));
-        print("All schedules applied at", new Date().toString());
-        printHumanSchedule(timings);
-        return;
-      }
-      let job = jobs[i++];
-      Shelly.call("Schedule.Create", job, function() {
-        print("Created job", i, "/", jobs.length);
-        Timer.set(200, false, createNext);
-      });
-    }
-
-    createNext();
-  }
 }
 
 function applySchedules(timings) {
