@@ -292,7 +292,8 @@ function printHumanSchedule(timings) {
 
 function syncCalendar() {
   if (!isPollingAllowed()) {
-    print("Polling paused during night hours.");
+    print("Polling paused during night hours, force switch off.");
+    Shelly.call("Switch.Set", { id: 0, on: false });
     return;
   }
   let url = buildApiUrl();
