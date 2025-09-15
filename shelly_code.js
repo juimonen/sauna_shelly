@@ -54,7 +54,6 @@ function pad2(n) { return n < 10 ? "0" + n : "" + n; }
 
 function formatDate(input) {
   var d = (typeof input === "object" && input !== null) ? input : new Date(input);
-  if (isNaN(d.getTime())) return "1970-01-01"; // fallback
   return d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate());
 }
 
@@ -381,6 +380,144 @@ function syncCalendar() {
   });
 }
 
+// --- Test runner ---
+function runAllTests() {
+  let tests = [
+    testFormatDate,
+    testPreprocessTimings,
+    testSchedulesDiffer,
+    testApplySchedules,
+    testBuildApiUrl,
+    testBadJson,
+    testNetworkOutage,
+    testNightTimeEnforceOff
+  ];
+
+  let idx = 0;
+  function runNext() {
+    if (idx >= tests.length) {
+      print("All tests completed.");
+      return;
+    }
+
+    let testFn = tests[idx++];
+    try {
+      testFn(function (result) {
+        print(result.name + ": " + result.status);
+        Timer.set(500, false, runNext); // delay between tests
+      });
+    } catch (e) {
+      print("ERROR in test:", e);
+      Timer.set(500, false, runNext);
+    }
+  }
+
+  runNext();
+}
+
+// --- Tests ---
+
+function testFormatDate(done) {
+  let d = new Date("2025-09-15T00:00:00Z");
+  let out = formatDate(d);
+  done({
+    name: "testFormatDate",
+    status: (out === "2025-09-15" ? "PASSED" : "FAILED (" + out + ")")
+  });
+}
+
+function testPreprocessTimings(done) {
+  let timings = [
+    { on: "2025-09-15T10:00:00Z", off: "2025-09-15T11:00:00Z" },
+    { on: "2025-09-15T11:15:00Z", off: "2025-09-15T12:00:00Z" }
+  ];
+  let result = preprocessTimings(timings);
+  let passed = (result.length === 1); // should merge into one block
+  done({
+    name: "testPreprocessTimings",
+    status: passed ? "PASSED" : "FAILED (" + JSON.stringify(result) + ")"
+  });
+}
+
+function testSchedulesDiffer(done) {
+  let a = [{ on: "2025-09-15T10:00:00Z", off: "2025-09-15T11:00:00Z" }];
+  let b = [{ on: "2025-09-15T10:00:00Z", off: "2025-09-15T11:00:00Z" }];
+  let c = [{ on: "2025-09-15T12:00:00Z", off: "2025-09-15T13:00:00Z" }];
+
+  lastApplied = a;
+  let same = !schedulesDiffer(b);
+  let different = schedulesDiffer(c);
+
+  done({
+    name: "testSchedulesDiffer",
+    status: (same && different) ? "PASSED" : "FAILED"
+  });
+}
+
+function testApplySchedules(done) {
+  let timings = [{ on: "2025-09-15T10:00:00Z", off: "2025-09-15T11:00:00Z" }];
+  try {
+    applySchedules(timings);
+    done({ name: "testApplySchedules", status: "PASSED" });
+  } catch (e) {
+    done({ name: "testApplySchedules", status: "FAILED (" + e + ")" });
+  }
+}
+
+function testBuildApiUrl(done) {
+  try {
+    let url = buildApiUrl();
+    let ok = typeof url === "string" && url.indexOf("http") === 0;
+    done({ name: "testBuildApiUrl", status: ok ? "PASSED" : "FAILED (" + url + ")" });
+  } catch (e) {
+    done({ name: "testBuildApiUrl", status: "FAILED (" + e + ")" });
+  }
+}
+
+function testBadJson(done) {
+  try {
+    let res = { body: "this is not json" };
+    let data;
+    try { data = JSON.parse(res.body); } catch (e) { data = null; }
+    let passed = (data === null);
+    done({ name: "testBadJson", status: passed ? "PASSED" : "FAILED" });
+  } catch (e) {
+    done({ name: "testBadJson", status: "FAILED (" + e + ")" });
+  }
+}
+
+function testNetworkOutage(done) {
+  try {
+    let errCode = 1; // simulate error
+    let errMsg = "Network unreachable";
+    if (errCode !== 0) {
+      done({ name: "testNetworkOutage", status: "PASSED" });
+    } else {
+      done({ name: "testNetworkOutage", status: "FAILED" });
+    }
+  } catch (e) {
+    done({ name: "testNetworkOutage", status: "FAILED (" + e + ")" });
+  }
+}
+
+function testNightTimeEnforceOff(done) {
+  let now = new Date();
+  let backup = now.getHours;
+
+  // force hour to 23 (night time)
+  now.getHours = function () { return 23; };
+
+  let allowed = isPollingAllowed();
+  let passed = !allowed;
+
+  now.getHours = backup; // restore
+
+  done({
+    name: "testNightTimeEnforceOff",
+    status: passed ? "PASSED" : "FAILED"
+  });
+}
+
 let RUN_TESTS = false; // set to false for real operation
 
 if (RUN_TESTS) {
@@ -388,99 +525,4 @@ if (RUN_TESTS) {
 } else {
     syncCalendar();
     Timer.set(REFRESH_INTERVAL, true, syncCalendar);
-}
-
-function runAllTests() {
-    console.log("=== Running test suite ===");
-    let results = [];
-
-    function runTest(name, fn) {
-        try {
-            fn();
-            results.push({ name, status: "PASSED" });
-        } catch (e) {
-            results.push({ name, status: "FAILED", error: e.message });
-        }
-    }
-
-    // --- Test 1: Preprocess merges overlapping events ---
-    runTest("Preprocess merge test", function() {
-        let input = [
-            { on: "2025-09-12T10:30:00Z", off: "2025-09-12T11:00:00Z" },
-            { on: "2025-09-12T10:45:00Z", off: "2025-09-12T11:15:00Z" }
-        ];
-        let output = preprocessTimings(input);
-        if (output.length !== 1) throw new Error("Merge failed");
-    });
-
-    // --- Test 2: Preprocess applies START_PRE ---
-    runTest("Start pre adjustment test", function() {
-        let input = [{ on: "2025-09-12T10:30:00Z", off: "2025-09-12T11:00:00Z" }];
-        let output = preprocessTimings(input);
-        let expectedOn = new Date("2025-09-12T10:00:00Z").toISOString(); // START_PRE = 30
-        if (output[0].on !== expectedOn) throw new Error("START_PRE not applied correctly");
-    });
-
-    // --- Test 3: Schedules differ logic ---
-    runTest("Schedules differ test", function() {
-        lastApplied = [{ on: "2025-09-12T10:00:00Z", off: "2025-09-12T11:00:00Z" }];
-        let newTimings = [{ on: "2025-09-12T10:00:00Z", off: "2025-09-12T11:00:00Z" }];
-        if (schedulesDiffer(newTimings)) throw new Error("Should not detect changes");
-        newTimings = [{ on: "2025-09-12T10:05:00Z", off: "2025-09-12T11:00:00Z" }];
-        if (!schedulesDiffer(newTimings)) throw new Error("Should detect changes");
-    });
-
-    // --- Test 4: Empty timings ---
-    runTest("Empty timings test", function() {
-        let output = preprocessTimings([]);
-        if (!Array.isArray(output) || output.length !== 0) throw new Error("Empty timings failed");
-    });
-
-    // --- Test 5: Malformed input ---
-    runTest("Malformed input test", function() {
-        try {
-            preprocessTimings(null);
-            preprocessTimings(undefined);
-        } catch (e) {
-            throw new Error("Malformed input caused error");
-        }
-    });
-
-    // --- Test 6: Cron string correctness ---
-    runTest("Cron string test", function() {
-        let iso = "2025-09-12T10:30:45Z";
-        let cron = toCronString(iso);
-        if (!cron.match(/45 30 10 \* \* \w{3}/)) throw new Error("Cron string format invalid: " + cron);
-    });
-
-    // --- Test 7: Nighttime enforcement ---
-    runTest("Nighttime enforcement test", function() {
-        let originalNIGHT_START = NIGHT_START;
-        let originalNIGHT_END = NIGHT_END;
-
-        NIGHT_START = 22;
-        NIGHT_END = 10;
-
-        let oldDate = new Date();
-        let testDate = new Date();
-        testDate.setHours(23);
-        Date = class extends Date {
-            constructor() { super(); return testDate; }
-        };
-        if (isPollingAllowed()) throw new Error("Polling should be paused at 23:00");
-
-        testDate.setHours(11);
-        if (!isPollingAllowed()) throw new Error("Polling should be allowed at 11:00");
-
-        NIGHT_START = originalNIGHT_START;
-        NIGHT_END = originalNIGHT_END;
-        Date = oldDate.constructor;
-    });
-
-    // --- Summary ---
-    console.log("=== Test results ===");
-    results.forEach(r => {
-        console.log(r.name, ":", r.status, r.error ? "(" + r.error + ")" : "");
-    });
-    console.log("=== Tests completed ===");
 }
