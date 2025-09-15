@@ -37,7 +37,9 @@ let CALENDAR_ID = "xxxxxxxxx";  // test calendar
 let API_KEY     = "xxxxxxxxx";
 let BASE_URL    = "https://api.kiinteistodata.fi/open-api-v1/properties";
 
-// === Config ===
+let PING_CHECK  = true;
+let PING_URL    = "xxxxxxxxxxxxxxxxxxxxxxxx"
+
 let REFRESH_INTERVAL = 5 * 60 * 1000; // 5 minutes
 let WEEK_SPAN        = 1;             // number of full weeks (7-day blocks)
 let MODE             = "calendar";    // "calendar" or "rolling"
@@ -46,8 +48,8 @@ let END_GAP          = 30;            // minutes gap to merge to next event
 let NIGHT_START      = 22;            // pause polling at 22:00
 let NIGHT_END        = 10;            // resume polling at 10:00
 let lastApplied      = null;
-let FAILED_SYNC_COUNT = 0;
-let FAILED_SYNC_THRESHOLD = 5;
+
+let RUN_TESTS = false; // set to false for real operation
 
 // --- Helpers ---
 function pad2(n) { return n < 10 ? "0" + n : "" + n; }
@@ -324,10 +326,14 @@ function printHumanSchedule(timings) {
   });
 }
 
-function notifyNetworkIssue() {
-  // Example: send via Shelly HTTP request or print
-  print("Network issue: calendar sync failed " + FAILED_SYNC_COUNT + " times!");
-  // Optional: Shelly.call("http.request", { url: "https://server/notify?msg=network_down" });
+function pingHealthcheck() {
+  Shelly.call("http.get", { url: PING_URL }, function(res, errCode, errMsg) {
+    if(errCode !== 0){
+      print("Check ping failed:", errMsg);
+    } else {
+      print("Check ping successful");
+    }
+  });
 }
 
 function syncCalendar() {
@@ -340,19 +346,13 @@ function syncCalendar() {
   let url = buildApiUrl();
   if (!url) return;
 
+  if (PING_CHECK) pingHealthcheck();
+
   Shelly.call("http.get", { url:url }, function(res, errCode, errMsg) {
     if (errCode !== 0) {
       print("HTTP error:", errMsg);
-      FAILED_SYNC_COUNT++;
-      if (FAILED_SYNC_COUNT >= FAILED_SYNC_THRESHOLD) {
-        notifyNetworkIssue();
-        FAILED_SYNC_COUNT = 0; // reset after alert
-      }
       return;
     }
-
-    // Reset counter on successful fetch
-    FAILED_SYNC_COUNT = 0;
 
     let data;
     try { data = JSON.parse(res.body); }
@@ -377,7 +377,7 @@ function syncCalendar() {
 
     print("Changes detected, applying new schedule...");
     applySchedules(preprocessed);
-  });
+   });
 }
 
 // --- Test runner ---
@@ -517,8 +517,6 @@ function testNightTimeEnforceOff(done) {
     status: passed ? "PASSED" : "FAILED"
   });
 }
-
-let RUN_TESTS = false; // set to false for real operation
 
 if (RUN_TESTS) {
     runAllTests();
