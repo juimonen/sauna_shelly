@@ -42,7 +42,7 @@ let PING_URL    = "xxxxxxxxxxxxxxxxxxxxxxxx"
 
 let REFRESH_INTERVAL = 5 * 60 * 1000; // 5 minutes
 let WEEK_SPAN        = 1;             // number of full weeks (7-day blocks)
-let MODE             = "calendar";    // "calendar" or "rolling"
+let MODE             = "calendar";    // "calendar", "rolling" or "static
 let START_PRE        = 30;            // minutes to shift ON times earlier
 let END_GAP          = 30;            // minutes gap to merge to next event
 let NIGHT_START      = 22;            // pause polling at 22:00
@@ -50,6 +50,12 @@ let NIGHT_END        = 10;            // resume polling at 10:00
 let lastApplied      = null;
 
 let RUN_TESTS = false; // set to false for real operation
+
+let STATIC_WEEKLY = {
+  3: [ { on: "19:00", off: "21:00" } ], // Wednesday
+  5: [ { on: "18:00", off: "21:00" } ], // Friday
+  6: [ { on: "18:00", off: "20:00" } ]  // Saturday
+};
 
 // --- Helpers ---
 function pad2(n) { return n < 10 ? "0" + n : "" + n; }
@@ -518,9 +524,67 @@ function testNightTimeEnforceOff(done) {
   });
 }
 
+function runStaticWeekly() {
+  print("Running in STATIC WEEKLY mode, applying fixed schedule…");
+
+  let jobs = [];
+
+  // Loop over days (0=Sun..6=Sat)
+  for (let dow = 0; dow < 7; dow++) {
+    let entries = STATIC_WEEKLY[dow];
+    if (!entries) continue;
+
+    for (let i = 0; i < entries.length; i++) {
+      let t = entries[i];
+
+      // Parse "HH:MM" strings into numbers
+      let onParts  = t.on.split(":");
+      let offParts = t.off.split(":");
+
+      let onH  = Number(onParts[0]);
+      let onM  = Number(onParts[1]);
+      let offH = Number(offParts[0]);
+      let offM = Number(offParts[1]);
+
+      jobs.push({
+        enable: true,
+        timespec: "0 " + onM + " " + onH + " * * " + DOW_MAP[dow],
+        calls: [{ method: "Switch.Set", params: { id: 0, on: true } }]
+      });
+      jobs.push({
+        enable: true,
+        timespec: "0 " + offM + " " + offH + " * * " + DOW_MAP[dow],
+        calls: [{ method: "Switch.Set", params: { id: 0, on: false } }]
+      });
+    }
+  }
+
+  let idx = 0;
+  function createNext() {
+    if (idx >= jobs.length) {
+      print("All static weekly schedules applied.");
+      return;
+    }
+    let job = jobs[idx++];
+    Shelly.call("Schedule.Create", job, function() {
+      print("Created static job", idx, "/", jobs.length);
+      Timer.set(200, false, createNext);
+    });
+  }
+
+  // First delete old jobs, then apply static ones
+  deleteAllSchedules(createNext);
+}
+
 if (RUN_TESTS) {
     runAllTests();
-} else {
+} else if (MODE === "calendar" || MODE === "rolling") {
+    // Dynamic calendar polling mode
     syncCalendar();
     Timer.set(REFRESH_INTERVAL, true, syncCalendar);
+} else if (MODE === "static") {
+    // Static weekly backup mode
+    runStaticWeekly();
+} else {
+    print("Invalid MODE:", MODE);
 }
