@@ -1,108 +1,163 @@
-# Scheduler for Shelly Devices
+# Shelly Scheduler
 
-A JavaScript scheduler for Shelly smart switches that automatically controls your switch based on calendar events. The script fetches scheduled on/off times from an API, merges overlapping events, and programs the switch accordingly.
+## User Manual (English)
 
-## Features
+### Overview
+This Shelly script controls a switch automatically using schedules fetched from an online calendar.
+It can also be switched to **static weekly mode**, where fixed ON/OFF times are configured inside the script.
+The device continues running schedules locally even during network outages.
 
-- Fetch schedules from an API for a specific house and calendar.
-- Supports **calendar mode** (Monday–Sunday weeks) or **rolling mode** (N days from current day).
-- Merges overlapping or close on/off events for efficient operation.
-- Allows **pre-timing** by shifting the ON time earlier (`START_PRE` minutes).
-- Supports **nighttime pause** to stop polling and enforce switch off.
-- Handles network failures, malformed JSON, and other edge cases without crashing.
-- Test mode included for safe verification without touching real hardware.
+---
 
-## Configuration
+### Physical Access
+- The Shelly switch is installed in the internal network.
+- To configure it, connect your computer to the same local network (via the provided Ethernet switch).
+- Open a web browser and go to the Shelly’s local IP address (ask admin if unknown).
+- Login → **Scripts** → edit `script`.
 
-All configuration options are defined at the top of the script.
+---
 
-```javascript
-let HOUSE_ID    = "xxxxxxxxx";          // House identifier
-let CALENDAR_ID = "xxxxxxxxx";          // Calendar identifier (real or test)
-let API_KEY     = "xxxxxxxxx";          // API key
-let BASE_URL    = "https://api.kiinteistodata.fi/open-api-v1/properties";
+### Configuration Parameters
+At the top of the script you will find parameters:
 
-// Scheduler settings
-let REFRESH_INTERVAL = 5 * 60 * 1000;   // Fetch interval in ms (default: 5 minutes)
-let WEEK_SPAN        = 1;               // Number of full weeks (7-day blocks) to fetch
-let MODE             = "calendar";      // "calendar" = Mon–Sun, "rolling" = from today
-let START_PRE        = 30;              // Minutes to shift ON times earlier
-let END_GAP          = 30;              // Minutes gap to merge consecutive events
-let NIGHT_START      = 22;              // Hour to pause polling (24h format)
-let NIGHT_END        = 10;              // Hour to resume polling
+```js
+let REFRESH_INTERVAL = 5 * 60 * 1000; // fetch interval
+let WEEK_SPAN        = 1;             // number of weeks
+let MODE             = "calendar";    // "calendar", "rolling", or "static"
+let START_PRE        = 30;            // start heating X min earlier
+let END_GAP          = 30;            // merge events with small gaps
+let NIGHT_START      = 22;            // disable polling from 22:00
+let NIGHT_END        = 10;            // resume at 10:00
 ```
 
-## How it works
+- **calendar** = Always fetch Monday–Sunday blocks.
+- **rolling** = Always fetch 7 days ahead starting from today.
+- **static** = Ignore online calendar, use fixed weekly table.
 
-1. **Fetch Schedule**  
-   The script fetches on/off times from the API for the configured house and calendar.
+---
 
-2. **Preprocess Timings**  
-   - Shifts ON times earlier.
-   - Merges overlapping or close events (based on `END_GAP`).
+### Static Weekly Schedule
+If `MODE = "static"`, the script uses this table:
 
-3. **Compare and Apply**  
-   - Compares the preprocessed schedule to the last applied schedule.
-   - If changes exist, deletes old Shelly schedules and programs new ones sequentially.
-
-4. **Nighttime Enforcement**  
-   - Polling is paused during nighttime (`NIGHT_START` → `NIGHT_END`).
-   - The switch is forcibly turned off during this period.
-
-5. **Testing Mode**  
-   - Simulates API fetch and switch toggle.
-   - Verifies preprocessing, merging, cron conversion, and night enforcement.
-
-## Running the Script
-
-### Real Mode
-
-```javascript
-syncCalendar();
-Timer.set(REFRESH_INTERVAL, true, syncCalendar);
+```js
+let STATIC_SCHEDULE = [
+  { day: "MON", on: "16:00", off: "22:00" },
+  { day: "TUE", on: "16:00", off: "22:00" },
+  { day: "WED", on: "16:00", off: "22:00" },
+  { day: "THU", on: "16:00", off: "22:00" },
+  { day: "FRI", on: "16:00", off: "23:00" },
+  { day: "SAT", on: "14:00", off: "23:00" },
+  { day: "SUN", on: "14:00", off: "22:00" }
+];
 ```
 
-### Test Mode
+To change:
+- Edit `on` (start) and `off` (stop) times.
+- Use **24-hour format** (`HH:MM`).
+- Save → Restart script → Check **Logs**.
 
-```javascript
-let RUN_TESTS = true;
+---
 
-if (RUN_TESTS) {
-    runAllTests();
-} else {
-    syncCalendar();
-    Timer.set(REFRESH_INTERVAL, true, syncCalendar);
-}
+### Night Mode
+Between **22:00 and 10:00**:
+- Polling is disabled.
+- Script enforces the switch OFF every cycle.
+- Calendar syncing resumes automatically after 10:00.
+
+---
+
+### Error Handling
+The script is designed to **never crash**. It handles:
+- Power loss (schedules remain in device).
+- Network outage (local schedules continue).
+- Bad JSON / corrupted calendar data (script skips update).
+- Manual override (logs show when state changes).
+
+---
+
+### Testing Mode
+If `RUN_TESTS = true`, the script will run internal tests instead of syncing schedules.
+- Tests cover date formatting, merging events, schedule creation, error cases.
+- Results are printed in the **Logs** as `PASSED` or `FAILED`.
+
+---
+
+## Käyttöohje (Suomi)
+
+### Yleiskuvaus
+Tämä Shelly-skripti ohjaa kytkintä automaattisesti aikataulujen mukaan, jotka haetaan verkkokalenterista.
+Vaihtoehtoisesti voidaan käyttää **staattista viikkoaikataulua**, jolloin ON/OFF -ajat määritellään suoraan skriptiin.
+Laite jatkaa aikataulujen suorittamista paikallisesti myös verkkoyhteyden katketessa.
+
+---
+
+### Fyysinen käyttö
+- Shelly-kytkin on asennettu sisäverkkoon.
+- Konfigurointia varten yhdistä tietokone samaan lähiverkkoon (kytke mukana olevaan verkkokytkimeen).
+- Avaa selaimessa Shellyn paikallinen IP-osoite (kysy ylläpitäjältä jos ei tiedossa).
+- Kirjaudu sisään → **Scripts** → muokkaa `script`.
+
+---
+
+### Konfigurointiparametrit
+Skriptin alussa on seuraavat parametrit:
+
+```js
+let REFRESH_INTERVAL = 5 * 60 * 1000; // hakuväli
+let WEEK_SPAN        = 1;             // viikkojen määrä
+let MODE             = "calendar";    // "calendar", "rolling" tai "static"
+let START_PRE        = 30;            // lämmitä X min aiemmin
+let END_GAP          = 30;            // yhdistä tapahtumat jos lyhyt tauko
+let NIGHT_START      = 22;            // tauko klo 22:00 alkaen
+let NIGHT_END        = 10;            // jatkuu klo 10:00
 ```
 
-- Set `RUN_TESTS = true` to run all internal tests.
-- Set `RUN_TESTS = false` for normal operation.
+- **calendar** = Hakee aina maanantai–sunnuntai -blokit.
+- **rolling** = Hakee aina 7 päivää eteenpäin nykyisestä päivästä.
+- **static** = Ei hae verkosta, käyttää kiinteitä aikoja.
 
-## Error Handling
+---
 
-The script is designed to handle common failures gracefully:
+### Staattinen viikkoaikataulu
+Jos `MODE = "static"`, skripti käyttää tätä taulukkoa:
 
-- **Network failures** → logs the error, continues operating with last applied schedule.
-- **Malformed JSON** → caught and logged, no crash occurs.
-- **Empty or missing data** → safely ignored, previous schedule remains active.
-- **Multiple consecutive deletions/creations** → sequenced with delays to avoid overloading the device.
+```js
+let STATIC_SCHEDULE = [
+  { day: "MON", on: "16:00", off: "22:00" },
+  { day: "TUE", on: "16:00", off: "22:00" },
+  { day: "WED", on: "16:00", off: "22:00" },
+  { day: "THU", on: "16:00", off: "22:00" },
+  { day: "FRI", on: "16:00", off: "23:00" },
+  { day: "SAT", on: "14:00", off: "23:00" },
+  { day: "SUN", on: "14:00", off: "22:00" }
+];
+```
 
-## Testing
+Muuttaminen:
+- Muokkaa `on` (käynnistys) ja `off` (sammutus) -aikoja.
+- Käytä **24h-muotoa** (`HH:MM`).
+- Tallenna → Käynnistä skripti uudelleen → Tarkista **Logs**.
 
-- Preprocessing merges overlapping events correctly.
-- Start-pre shift (`START_PRE`) is applied.
-- `schedulesDiffer` correctly detects changes.
-- Empty and malformed JSON inputs handled safely.
-- Nighttime polling enforcement verified.
-- Cron string formatting for Shelly schedules validated.
+---
 
-## Notes
+### Yötila
+Välillä **22:00–10:00**:
+- Kalenterihaku on pois käytöstä.
+- Skripti pakottaa kytkimen pois päältä jokaisella kierroksella.
+- Kalenterihaku jatkuu automaattisesti klo 10:00 jälkeen.
 
-- The Shelly device retains schedules even during network outages.
-- For multiple houses or calendars, configure separate instances of the script.
-- Adjust `REFRESH_INTERVAL`, `START_PRE`, `END_GAP`, and `WEEK_SPAN` to suit your usage.
+---
 
-## License
+### Virheenkäsittely
+Skripti on suunniteltu **olemaan kaatumatta**. Se käsittelee:
+- Sähkökatkon (aikataulut säilyvät laitteessa).
+- Verkon katkon (paikalliset aikataulut jatkuvat).
+- Virheellisen JSON-/kalenteridatan (skripti ohittaa päivityksen).
+- Manuaalisen ohjauksen (lokit näyttävät kun tila muuttuu).
 
-BSD 3-Clause License  
-See the top of the script for full license text.
+---
+
+### Testitila
+Jos `RUN_TESTS = true`, skripti suorittaa sisäiset testit aikataulujen synkronoinnin sijasta.
+- Testit kattavat päivämäärien muunnokset, tapahtumien yhdistämisen, aikataulujen luonnin ja virhetilanteet.
+- Tulokset näkyvät **Logs**-välilehdellä muodossa `PASSED` tai `FAILED`.
