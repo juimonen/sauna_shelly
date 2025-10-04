@@ -44,6 +44,7 @@ let REFRESH_INTERVAL = 5 * 60 * 1000; // 5 minutes
 let WEEK_SPAN        = 1;             // number of full weeks (7-day blocks)
 let MODE             = "calendar";    // "calendar", "rolling" or "static
 let START_PRE        = 30;            // minutes to shift ON times earlier
+let END_OFFSET       = 0;             // minutes to shift OFF times earlier
 let END_GAP          = 30;            // minutes gap to merge to next event
 let NIGHT_START      = 22;            // pause polling at 22:00
 let NIGHT_END        = 10;            // resume polling at 10:00
@@ -159,6 +160,7 @@ function preprocessTimings(timings) {
     let off = safeDate(timings[i].off);
     if (!on || !off) continue;
     on = new Date(on.getTime() - START_PRE * 60000);
+    off = new Date(off.getTime() - END_OFFSET * 60000);
     adjusted.push({ on: on, off: off });
   }
 
