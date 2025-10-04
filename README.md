@@ -25,6 +25,7 @@ let REFRESH_INTERVAL = 5 * 60 * 1000; // fetch interval
 let WEEK_SPAN        = 1;             // number of weeks
 let MODE             = "calendar";    // "calendar", "rolling", or "static"
 let START_PRE        = 30;            // start heating X min earlier
+let END_OFFSET       = 10;            // turn off X min before end time
 let END_GAP          = 30;            // merge events with small gaps
 let NIGHT_START      = 22;            // disable polling from 22:00
 let NIGHT_END        = 10;            // resume at 10:00
@@ -33,6 +34,8 @@ let NIGHT_END        = 10;            // resume at 10:00
 - **calendar** = Always fetch Monday–Sunday blocks.
 - **rolling** = Always fetch 7 days ahead starting from today.
 - **static** = Ignore online calendar, use fixed weekly table.
+- **START_PRE** = Minutes to shift ON times earlier (e.g., 30 = start 30 min before scheduled time).
+- **END_OFFSET** = Minutes to shift OFF times earlier (e.g., 5 = turn off 5 min before scheduled end time).
 
 ---
 
@@ -107,6 +110,7 @@ let REFRESH_INTERVAL = 5 * 60 * 1000; // hakuväli
 let WEEK_SPAN        = 1;             // viikkojen määrä
 let MODE             = "calendar";    // "calendar", "rolling" tai "static"
 let START_PRE        = 30;            // lämmitä X min aiemmin
+let END_OFFSET       = 0;             // sammuta X min ennen loppuaikaa
 let END_GAP          = 30;            // yhdistä tapahtumat jos lyhyt tauko
 let NIGHT_START      = 22;            // tauko klo 22:00 alkaen
 let NIGHT_END        = 10;            // jatkuu klo 10:00
@@ -115,6 +119,8 @@ let NIGHT_END        = 10;            // jatkuu klo 10:00
 - **calendar** = Hakee aina maanantai–sunnuntai -blokit.
 - **rolling** = Hakee aina 7 päivää eteenpäin nykyisestä päivästä.
 - **static** = Ei hae verkosta, käyttää kiinteitä aikoja.
+- **START_PRE** = Minuutit, jotka siirtävät käynnistysaikaa aiemmaksi (esim. 30 = käynnistyy 30 min ennen aikataulua).
+- **END_OFFSET** = Minuutit, jotka siirtävät sammutusaikaa aiemmaksi (esim. 5 = sammuu 5 min ennen aikataulun loppua).
 
 ---
 
